@@ -178,7 +178,7 @@ python -m http.server 3000
 
 ---
 
-## 🌐 API Endpoints
+## API Endpoints
 
 ### Authentication
 | Method | Endpoint | Description |
