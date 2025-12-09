@@ -1,85 +1,106 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from models import User, Login, Deposit, Withdraw
+from crud import create_user, get_user, record_transaction, get_user_transactions
+from auth import hash_password, verify_password
+from database import users_col
 
 app = FastAPI()
 
+# Allow frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow frontend to connect
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# TEMPORARY in-memory "fake database"
-users = {}
-balances = {}
-transactions = []
-
-#just to test the server is running
 @app.get("/")
-def home():
-    return {"status": "backend is running"}
+async def home():
+    return {"status": "backend running with MongoDB"}
+
 
 @app.post("/register")
-def register(user: dict):
-    username = user["username"]
-
-    if username in users:
+async def register(user: User):
+    # check if username exists
+    existing_user = await get_user(user.username)
+    if existing_user:
         return {"error": "Username already exists"}
 
-    # Store full user record
-    users[username] = {
-        "email": user["email"],
-        "password": user["password"]
-    }
+    # hash password before saving
+    hashed_pwd = hash_password(user.password)
 
-    balances[username] = 0
+    user_dict = user.dict()
+    user_dict["password"] = hashed_pwd
+    user_dict["balance"] = 0  # initial balance
 
-    return {"message": "registered"}
+    await create_user(user_dict)
+
+    return {"message": "registered successfully"}
+
 
 @app.post("/login")
-def login(data: dict):
-    username = data["username"]
-    password = data["password"]
-
-    if username not in users:
+async def login(data: Login):
+    user = await get_user(data.username)
+    if not user:
         return {"error": "Invalid username or password"}
 
-    # Compare stored password vs entered password
-    if users[username]["password"] != password:
+    if not verify_password(data.password, user["password"]):
         return {"error": "Invalid username or password"}
 
     return {
-        "token": "TEMP_TOKEN",
-        "username": username,
-        "email": users[username]["email"]
+        "message": "login successful",
+        "username": user["username"],
+        "email": user["email"]
     }
 
+
 @app.get("/balance/{username}")
-def balance(username: str):
-    return {"balance": balances.get(username, 0)}
+async def balance(username: str):
+    user = await get_user(username)
+    if not user:
+        return {"error": "user not found"}
+    return {"balance": user.get("balance", 0)}
+
 
 @app.post("/deposit")
-def deposit(data: dict):
-    username = data["username"]
-    amount = data["amount"]
-    balances[username] += amount
-    transactions.append({"username": username, "type": "deposit", "amount": amount})
-    return {"message": "deposit ok"}
+async def deposit(data: Deposit):
+    # increase balance
+    await users_col.update_one(
+        {"username": data.username},
+        {"$inc": {"balance": data.amount}}
+    )
+
+    # record transaction
+    await record_transaction(
+        {"username": data.username, "type": "deposit", "amount": data.amount}
+    )
+
+    return {"message": "deposit successful"}
+
 
 @app.post("/withdraw")
-def withdraw(data: dict):
-    username = data["username"]
-    amount = data["amount"]
-    balances[username] -= amount
-    transactions.append({"username": username, "type": "withdraw", "amount": amount})
-    return {"message": "withdraw ok"}
+async def withdraw(data: Withdraw):
+    user = await get_user(data.username)
+    if not user:
+        return {"error": "user not found"}
+
+    if user["balance"] < data.amount:
+        return {"error": "insufficient funds"}
+
+    await users_col.update_one(
+        {"username": data.username},
+        {"$inc": {"balance": -data.amount}}
+    )
+
+    await record_transaction(
+        {"username": data.username, "type": "withdraw", "amount": data.amount}
+    )
+
+    return {"message": "withdraw successful"}
+
 
 @app.get("/transactions/{username}")
-def my_transactions(username: str):
-    return [t for t in transactions if t["username"] == username]
-
-@app.get("/transactions/all")
-def all_tx():
-    return transactions
+async def my_transactions(username: str):
+    return await get_user_transactions(username)
