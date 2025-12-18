@@ -1,6 +1,6 @@
 # Week 3 Deliverables - CI/CD & Deployment Automation
 
-**Student:** Ntando, Kagiso, Florence & Tumelo 
+**Candidate:** Ntando, Kagiso, Florence & Tumelo 
 **Date:** December 11-13, 2025  
 **Branch:** devops-week3  
 **Project:** Banking System - DevOps Implementation
